@@ -36,15 +36,26 @@ init_db()
 def home():
     return jsonify({
         "status": "FallSafe backend running",
-        "endpoints": ["/api/device-data", "/api/latest", "/api/logs"]
+        "endpoints": [
+            "/api/device-data",
+            "/api/latest",
+            "/api/logs",
+            "/api/clear"
+        ]
     })
 
 
 @app.route("/api/device-data", methods=["POST"])
 def device_data():
-    data = request.json
+    data = request.get_json(force=True)
 
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    device_id = data.get("device_id", "ESP32-FD-001")
+    fall = int(data.get("fall", 0))
+    sos = int(data.get("sos", 0))
+    battery = int(data.get("battery", 0))
+    gsm = int(data.get("gsm", 0))
+
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -52,19 +63,20 @@ def device_data():
     c.execute("""
         INSERT INTO logs (device_id, fall, sos, battery, gsm, time)
         VALUES (?, ?, ?, ?, ?, ?)
-    """, (
-        data.get("device_id", "ESP32-FD-001"),
-        int(data.get("fall", 0)),
-        int(data.get("sos", 0)),
-        int(data.get("battery", 0)),
-        int(data.get("gsm", 0)),
-        now
-    ))
+    """, (device_id, fall, sos, battery, gsm, now))
 
     conn.commit()
     conn.close()
 
-    return jsonify({"status": "ok", "time": now})
+    return jsonify({
+        "status": "ok",
+        "device_id": device_id,
+        "fall": fall,
+        "sos": sos,
+        "battery": battery,
+        "gsm": gsm,
+        "time": now
+    })
 
 
 @app.route("/api/latest")
@@ -96,7 +108,7 @@ def logs():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
 
-    c.execute("SELECT * FROM logs ORDER BY id DESC")
+    c.execute("SELECT * FROM logs ORDER BY id DESC LIMIT 100")
     rows = c.fetchall()
 
     conn.close()
@@ -115,6 +127,18 @@ def logs():
         })
 
     return jsonify(result)
+
+
+@app.route("/api/clear", methods=["DELETE", "POST"])
+def clear_logs():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    c.execute("DELETE FROM logs")
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "cleared"})
 
 
 if __name__ == "__main__":
