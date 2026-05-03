@@ -6,10 +6,14 @@ import datetime
 app = Flask(__name__)
 CORS(app)
 
+DB_NAME = "data.db"
+
+
 def init_db():
-    conn = sqlite3.connect("data.db")
+    conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute('''
+
+    c.execute("""
         CREATE TABLE IF NOT EXISTS logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             device_id TEXT,
@@ -19,35 +23,53 @@ def init_db():
             gsm INTEGER,
             time TEXT
         )
-    ''')
+    """)
+
     conn.commit()
     conn.close()
 
+
 init_db()
+
+
+@app.route("/")
+def home():
+    return jsonify({
+        "status": "FallSafe backend running",
+        "endpoints": ["/api/device-data", "/api/latest", "/api/logs"]
+    })
+
 
 @app.route("/api/device-data", methods=["POST"])
 def device_data():
     data = request.json
-    conn = sqlite3.connect("data.db")
+
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
 
-    c.execute("INSERT INTO logs (device_id, fall, sos, battery, gsm, time) VALUES (?, ?, ?, ?, ?, ?)", (
-        data.get("device_id"),
-        data.get("fall"),
-        data.get("sos"),
-        data.get("battery"),
-        data.get("gsm"),
-        datetime.datetime.now().strftime("%H:%M")
+    c.execute("""
+        INSERT INTO logs (device_id, fall, sos, battery, gsm, time)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        data.get("device_id", "ESP32-FD-001"),
+        int(data.get("fall", 0)),
+        int(data.get("sos", 0)),
+        int(data.get("battery", 0)),
+        int(data.get("gsm", 0)),
+        now
     ))
 
     conn.commit()
     conn.close()
 
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "time": now})
+
 
 @app.route("/api/latest")
 def latest():
-    conn = sqlite3.connect("data.db")
+    conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
 
     c.execute("SELECT * FROM logs ORDER BY id DESC LIMIT 1")
@@ -55,20 +77,23 @@ def latest():
 
     conn.close()
 
-    if row:
-        return jsonify({
-            "device_id": row[1],
-            "fall": row[2],
-            "sos": row[3],
-            "battery": row[4],
-            "gsm": row[5],
-            "time": row[6]
-        })
-    return jsonify({"message": "no data"})
+    if not row:
+        return jsonify({"message": "no data"})
+
+    return jsonify({
+        "id": row[0],
+        "device_id": row[1],
+        "fall": row[2],
+        "sos": row[3],
+        "battery": row[4],
+        "gsm": row[5],
+        "time": row[6]
+    })
+
 
 @app.route("/api/logs")
 def logs():
-    conn = sqlite3.connect("data.db")
+    conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
 
     c.execute("SELECT * FROM logs ORDER BY id DESC")
@@ -77,17 +102,20 @@ def logs():
     conn.close()
 
     result = []
-    for r in rows:
+
+    for row in rows:
         result.append({
-            "device_id": r[1],
-            "fall": r[2],
-            "sos": r[3],
-            "battery": r[4],
-            "gsm": r[5],
-            "time": r[6]
+            "id": row[0],
+            "device_id": row[1],
+            "fall": row[2],
+            "sos": row[3],
+            "battery": row[4],
+            "gsm": row[5],
+            "time": row[6]
         })
 
     return jsonify(result)
 
+
 if __name__ == "__main__":
-    app.run()
+    app.run(debug=True)
